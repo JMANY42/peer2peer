@@ -18,6 +18,7 @@ void handle_get_tracker(char *argv[], int sockid);
 void handle_list_trackers(int sockid);
 int extract_md5_from_body(const char *body, char *md5_out, size_t md5_out_size);
 void handle_create_tracker(char *argv[], int sockid);
+void handle_update_tracker(char *argv[], int sockid);
 
 int main(int argc,char *argv[]){
 
@@ -57,8 +58,47 @@ int main(int argc,char *argv[]){
         handle_create_tracker(argv, sockid);
     }
     else if(!strcmp(argv[1], "updatetracker")) {
-        // handle_update_tracker(argv, sockid);
+        handle_update_tracker(argv, sockid);
     }
+}
+
+void handle_update_tracker(char *argv[], int sockid) {
+    if (argv[2] == NULL || argv[3] == NULL || argv[4] == NULL || argv[5] == NULL || argv[6] == NULL) {
+        printf("Usage: updatetracker <filename> <start_bytes> <end_bytes> <ip-address> <port-number>\n");
+        close(sockid);
+        exit(1);
+    }
+
+    char req_message[2048];
+    snprintf(req_message,
+             sizeof(req_message),
+             "UPDATETRACKER|%s|%s|%s|%s|%s\n",
+             argv[2],
+             argv[3],
+             argv[4],
+             argv[5],
+             argv[6]);
+
+    if ((write(sockid, req_message, strlen(req_message))) < 0) {
+        printf("Send_request failure\n");
+        close(sockid);
+        exit(1);
+    }
+
+    char msg[1024];
+    int bytes_read = read(sockid, msg, sizeof(msg) - 1);
+    if (bytes_read < 0) {
+        printf("Read failure\n");
+        close(sockid);
+        exit(1);
+    }
+
+    msg[bytes_read] = '\0';
+    printf("Message from server:\n%s", msg);
+
+    close(sockid);
+    printf("Connection closed\n");
+    exit(0);
 }
 
 void handle_create_tracker(char *argv[], int sockid) {

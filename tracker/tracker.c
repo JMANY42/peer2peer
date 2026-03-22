@@ -47,7 +47,7 @@ void handle_get_req(int sock_child, const char *file_name);
 void tokenize_createmsg(const char *msg);
 void handle_createtracker_req(int sock_child, const char *request_msg);
 void tokenize_updatemsg(const char *msg);
-void handle_updatetracker_req(int sock_child);
+void handle_updatetracker_req(int sock_child, const char *request_msg);
 
 void read_config(void);
 char* get_tracker_list(int *list_len);
@@ -129,20 +129,18 @@ void peer_handler(int sock_child) { // function for file transfer. child process
         printf("list request handled.\n");
     }
 
-    else if ((strstr(read_msg, "get") != NULL) || (strstr(read_msg, "GET") != NULL)) { // get command received
-        char* fname = xtrct_fname(read_msg, " "); // extract filename from the command
-
-        handle_get_req(sock_child, fname);
-    }
-
     else if ((strstr(read_msg, "createtracker") != NULL) || (strstr(read_msg, "Createtracker") != NULL) || (strstr(read_msg, "CREATETRACKER") != NULL)) { // create command received
         handle_createtracker_req(sock_child, read_msg);
     }
 
-    else if ((strstr(read_msg, "updatetracker") != NULL) || (strstr(read_msg, "Updatetracker") != NULL) || (strstr(read_msg, "UPDATETRACKER") != NULL)) { // get command received
-        // tokenize_updatemsg(read_msg);
+    else if ((strstr(read_msg, "updatetracker") != NULL) || (strstr(read_msg, "Updatetracker") != NULL) || (strstr(read_msg, "UPDATETRACKER") != NULL)) { // update command received
+        handle_updatetracker_req(sock_child, read_msg);
+    }
 
-        // handle_updatetracker_req(sock_child);
+    else if ((strncmp(read_msg, "<GET ", 5) == 0) || (strncmp(read_msg, "GET ", 4) == 0)) { // get command received
+        char* fname = xtrct_fname(read_msg, " "); // extract filename from the command
+
+        handle_get_req(sock_child, fname);
     }
 
 } //end client handler function
@@ -459,5 +457,106 @@ void handle_createtracker_req(int sock_child, const char *request_msg) {
     fclose(fp);
 
     const char *ok = "<createtracker succ>\n";
+    write(sock_child, ok, strlen(ok));
+}
+
+void handle_updatetracker_req(int sock_child, const char *request_msg) {
+    char req_copy[2048];
+    char *tokens[6];
+    int i = 0;
+
+    if (request_msg == NULL) {
+        const char *err = "<updatetracker fail>\n";
+        write(sock_child, err, strlen(err));
+        return;
+    }
+
+    strncpy(req_copy, request_msg, sizeof(req_copy) - 1);
+    req_copy[sizeof(req_copy) - 1] = '\0';
+    req_copy[strcspn(req_copy, "\r\n")] = '\0';
+
+    char *token = strtok(req_copy, "|");
+    while (token != NULL && i < 6) {
+        tokens[i++] = token;
+        token = strtok(NULL, "|");
+    }
+
+    if (i != 6 || strcmp(tokens[0], "UPDATETRACKER") != 0) {
+        const char *err = "<updatetracker fail>\n";
+        write(sock_child, err, strlen(err));
+        return;
+    }
+
+    const char *filename = tokens[1];
+    long long start_byte = atoll(tokens[2]);
+    long long end_byte = atoll(tokens[3]);
+    const char *ip = tokens[4];
+    int port = atoi(tokens[5]);
+
+    if (start_byte < 0 || end_byte < start_byte || port <= 0) {
+        const char *err = "<updatetracker fail>\n";
+        write(sock_child, err, strlen(err));
+        return;
+    }
+
+    char path[4096];
+    snprintf(path, sizeof(path), "%s/%s", tracker_dir, filename);
+
+    TrackerFileData data;
+    if (!parse_tracker_file(path, &data)) {
+        const char *err = "<updatetracker ferr>\n";
+        write(sock_child, err, strlen(err));
+        return;
+    }
+
+    int found = 0;
+    long long timestamp = (long long)time(NULL);
+    for (int j = 0; j < data.peer_count; j++) {
+        if (strcmp(data.peers[j].ip, ip) == 0 && data.peers[j].port == port) {
+            data.peers[j].start_byte = start_byte;
+            data.peers[j].end_byte = end_byte;
+            data.peers[j].timestamp = timestamp;
+            found = 1;
+            break;
+        }
+    }
+
+    // if (!found) {
+    //     const char *err = "<updatetracker fail>\n";
+    //     write(sock_child, err, strlen(err));
+    //     return;
+    // }
+
+    FILE *fp = fopen(path, "w");
+    if (fp == NULL) {
+        const char *err = "<updatetracker ferr>\n";
+        write(sock_child, err, strlen(err));
+        return;
+    }
+
+    fprintf(fp, "Filename: %s\n", data.filename);
+    fprintf(fp, "Filesize: %lld\n", data.filesize);
+    fprintf(fp, "Description: %s\n", data.description);
+    fprintf(fp, "MD5: %s\n", data.md5);
+    fprintf(fp, "#list of peers follows next\n");
+    for (int j = 0; j < data.peer_count; j++) {
+        fprintf(fp, "%s:%d:%lld:%lld:%lld\n",
+                data.peers[j].ip,
+                data.peers[j].port,
+                data.peers[j].start_byte,
+                data.peers[j].end_byte,
+                data.peers[j].timestamp);
+    }
+    if (!found) {
+        fprintf(fp, "%s:%d:%lld:%lld:%lld\n",
+                ip,
+                port,
+                start_byte,
+                end_byte,
+                timestamp);
+    }
+    fclose(fp);
+
+    const char *ok = "<updatetracker succ>\n";
     write(sock_child, ok, strlen(ok));
 }
