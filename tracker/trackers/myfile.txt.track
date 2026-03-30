@@ -1,0 +1,6 @@
+Filename: myfile.txt
+Filesize: 5000
+Description: test_description
+MD5: abc123md5
+#list of peers follows next
+127.0.0.1:8080:0:2500:1774825547
